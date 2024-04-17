@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-HIPolicyAMLGen-78240d28-8a88-438f-8139-fad450ae2a2a</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+	<DockerfileRunArguments> -v E:\Hollard\aiforgedexports\:/exports/</DockerfileRunArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Models\SingleFile.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Template.xlsx" />
+    <None Remove="~%24Template.xlsx" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <_WebToolingArtifacts Remove="Properties\PublishProfiles\ExcelExporter.pubxml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Template.xlsx">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AIForged.SDK" Version="1.2.1563.1024-dev" />
+    <PackageReference Include="EPPlus" Version="7.4.1" />
+    <PackageReference Include="LiquidTechnologies.XmlObjects.Runtime" Version="20.7.8" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.19.6" />
+    <PackageReference Include="OpenTelemetry" Version="1.8.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.8.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Assets\" />
+    <Folder Include="XML\" />
+  </ItemGroup>
+</Project>

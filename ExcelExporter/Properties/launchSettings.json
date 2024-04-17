@@ -1,0 +1,20 @@
+{
+  "profiles": {
+    "ExcelExporter": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "EXLGEN_CONFIG": "{'APIKey': '', 'ProjectId': 0, 'ServiceId': 0,'AIForgedEndpoint': 'https://portal.aiforged.com','InputTemplatePath': 'Template.xlsx','OutputPath': '/exports','MasterParamDefName': ''}"
+      },
+      "dotnetRunMessages": true
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "EXLGEN_CONFIG": "{'APIKey': '', 'ProjectId': 0, 'ServiceId': 0,'AIForgedEndpoint': 'https://portal.aiforged.com','InputTemplatePath': 'Template.xlsx','OutputPath': '/exports','MasterParamDefName': ''}"
+      }
+    }
+  },
+  "$schema": "http://json.schemastore.org/launchsettings.json"
+}
