@@ -14,7 +14,7 @@ This project provides a tool to generate Excel files using a template. It popula
 ### Template Structure
 
 The Excel template should define sections and placeholders using a specific syntax. Here's an example template structure:
-
+```plaintext
 Company Name: {company}
 
 {EmployeeDetails start}
@@ -36,6 +36,7 @@ Start Date: {proj:start}  End Date: {proj:end}
 {ProjectDetails end}
 
 {EmployeeDetails end}
+```
 
 ### Placeholders
 
@@ -90,13 +91,15 @@ The project includes a Dockerfile for containerized execution. You can set confi
 
 Dockerfile snippet:
 
+```plaintext
 ENV EXLGEN_CONFIG="{'APIKey': '', 'ProjectId': , 'ServiceId': ,'AIForgedEndpoint': 'https://portal.aiforged.com','InputTemplatePath': 'Template.xlsx','OutputPath': '/exports','MasterParamDefName': ''}"
+```
 
 ### Usage
 
 1. Prepare your Excel template with the desired structure and placeholders.
 2. Use the application to generate a populated Excel file:
-   dotnet run --template "path/to/template.xlsx" --output "path/to/output.xlsx"
+   `dotnet run --template "path/to/template.xlsx" --output "path/to/output.xlsx"`
 
 ### EPPlus Library
 
