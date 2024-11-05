@@ -214,5 +214,22 @@ namespace ExcelExporter.Helpers
         {
             return new Stack<T>(stack.Reverse());
         }
+
+        public static object[,] GetArraySection(object[,] array, int startRow, int numberOfRows, int startCol, int numberOfCols)
+        {
+            // Initialize the new 2D array 
+            object[,] newArray = new object[numberOfRows, numberOfCols];
+
+            // Copy elements from the original array to the new array 
+            for (int i = 0; i < numberOfRows; i++)
+            {
+                for (int j = 0; j < numberOfCols; j++)
+                {
+                    newArray[i, j] = array[startRow + i, startCol + j];
+                }
+            }
+
+            return newArray;
+        }
     }
 }

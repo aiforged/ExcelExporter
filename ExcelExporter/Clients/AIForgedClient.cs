@@ -253,7 +253,7 @@ namespace ExcelExporter.Clients
         }
 
         //Use to set a document's status to CustomError given its id
-        public async Task<bool> SetDocumentStatusErrorAsync(int documentId)
+        public async Task<bool> SetDocumentStatusErrorAsync(int? documentId)
         {
             //Initialize our doc object to null used to update the document's status
             DocumentViewModel doc = null;

@@ -36,7 +36,7 @@ namespace ExcelExporter.Helpers
                 Helpers.Tools.AssignByMembers(sectionCell?.Style.Border.Top ?? cell.Style.Border.Top, cell.Style.Border.Top, propertiesOnly: true);
             }
             Helpers.Tools.AssignByMembers(sectionCell?.Style.Border.Right ?? cell.Style.Border.Right, cell.Style.Border.Right, propertiesOnly: true);
-            if (!isEnd)
+            if (!isStart && !isEnd)
             {
                 Helpers.Tools.AssignByMembers(sectionCell?.Style.Border.Bottom ?? cell.Style.Border.Bottom, cell.Style.Border.Bottom, propertiesOnly: true);
             }

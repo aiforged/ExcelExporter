@@ -21,17 +21,19 @@ namespace ExcelExporter.Models
             StartRow = startRow;
         }
 
-        public Section(string name, int startRow, int startCol, int endCol)
+        public Section(string name, string parentName, int startRow, int startCol, int endCol)
         {
             Name = name;
+            ParentName = parentName;
             StartRow = startRow;
             StartCol = startCol;
             EndCol = endCol;
         }
 
-        public Section(string name, int startRow, int startCol, int endRow, int endCol, object cells, List<SectionCellStyle> cellStyles, List<ExcelAddress> mergedCells)
+        public Section(string name, string parentName, int startRow, int startCol, int endRow, int endCol, object cells, List<SectionCellStyle> cellStyles, List<ExcelAddress> mergedCells)
         {
             Name = name;
+            ParentName = parentName;
             StartRow = startRow;
             StartCol = startCol;
             EndRow = endRow;
@@ -42,6 +44,7 @@ namespace ExcelExporter.Models
         }
 
         public string Name { get; set; }
+        public string ParentName { get; set; }
         public int StartRow { get; set; }
         public int StartCol { get; set; }
         public int EndRow { get; set; }

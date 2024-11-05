@@ -20,7 +20,7 @@ namespace ExcelExporter.Helpers
         public static string GetReplacementValue(string placeholder, DocumentParameterViewModel data, int? index = null, int depth = -1, bool canNextBeSelf = true, params Route[] routes)
         {
             if (string.IsNullOrEmpty(placeholder) || data is null) return string.Empty;
-            var combination = placeholder.Split("|", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var combination = placeholder.Split("&", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             StringBuilder stringBuilder = new StringBuilder();
 
             foreach (var combo in combination)
@@ -36,48 +36,62 @@ namespace ExcelExporter.Helpers
 
                 if (!key.Equals(path))
                 {
+                    string replacementValue = null;
                     var paths = path.Split(":").ToList();
 
                     paths.RemoveAt(0);
                     path = string.Join(":", paths);
                     if (paths.FirstOrDefault() == key)
                     {
-                        if (!string.IsNullOrEmpty($"{stringBuilder}"))
+                        replacementValue = GetReplacementValue(path, GetParameter(key, data, depth: depth + 1, canBeSelf: canNextBeSelf, searchInColumns: true, routes: routes), index, depth + 1, canNextBeSelf: false, routes: routes);
+                        if (!string.IsNullOrEmpty($"{stringBuilder}") && !string.IsNullOrEmpty(replacementValue))
                         {
-                            stringBuilder.Append("|");
+                            stringBuilder.Append("; ");
                         }
-                        stringBuilder.Append(GetReplacementValue(path, GetParameter(key, data, depth: depth + 1, canBeSelf: canNextBeSelf, routes: routes), index, depth + 1, canNextBeSelf: false, routes: routes));
+                        stringBuilder.Append(replacementValue);
                     }
                     else
                     {
-                        if (!string.IsNullOrEmpty($"{stringBuilder}"))
+                        replacementValue = GetReplacementValue(path, GetParameter(key, data, depth: depth + 1, canBeSelf: canNextBeSelf, searchInColumns: true, routes: routes), index, depth + 1, routes: routes);
+                        if (!string.IsNullOrEmpty($"{stringBuilder}") && !string.IsNullOrEmpty(replacementValue))
                         {
-                            stringBuilder.Append("|");
+                            stringBuilder.Append("; ");
                         }
-                        stringBuilder.Append(GetReplacementValue(path, GetParameter(key, data, depth: depth + 1, canBeSelf: canNextBeSelf, routes: routes), index, depth + 1, routes: routes));
+                        stringBuilder.Append(replacementValue);
                     }
                 }
                 else
                 {
                     var docParam = GetParameter(key, data, depth: depth + 1, routes: routes);
+                    var foundDocParam = docParam;
 
                     if (docParam is null) continue;
                     if (docParam.ParamDef.Grouping == GroupingType.Column)
                     {
                         foreach (var param in docParam.Children)
                         {
-                            docParam = GetParameter(key, param, index, depth: depth + 1, canBeSelf: true, routes: routes);
+                            foundDocParam = GetParameter(key, param, index, depth: depth + 1, canBeSelf: true, routes: routes);
 
-                            if (docParam is not null) break;
+                            if (foundDocParam is not null) break;
                         }
                     }
 
-                    if (docParam is null) continue;
-                    if (!string.IsNullOrEmpty($"{stringBuilder}"))
+                    //Fallback to indexless search
+                    if (foundDocParam is null)
                     {
-                        stringBuilder.Append("|");
+                        foreach (var param in docParam.Children)
+                        {
+                            foundDocParam = GetParameter(key, param, index: null, depth: depth + 1, canBeSelf: true, routes: routes);
+
+                            if (foundDocParam is not null) break;
+                        }
                     }
-                    stringBuilder.Append(docParam.Value);
+                    if (foundDocParam is null) continue;
+                    if (!string.IsNullOrEmpty($"{stringBuilder}") && !string.IsNullOrEmpty(foundDocParam.Value))
+                    {
+                        stringBuilder.Append("; ");
+                    }
+                    stringBuilder.Append(foundDocParam.Value);
                 }
             }
 
@@ -134,14 +148,14 @@ namespace ExcelExporter.Helpers
             return docParam;
         }
 
-        public static DocumentParameterViewModel GetParameter(string defName, DocumentParameterViewModel data, int? index = null, int depth = -1, bool canBeSelf = true, params Route[] routes)
+        public static DocumentParameterViewModel GetParameter(string defName, DocumentParameterViewModel data, int? index = null, int depth = -1, bool canBeSelf = true, bool searchInColumns = false, params Route[] routes)
         {
             if (string.IsNullOrEmpty(defName)) return null;
             if (data is null) return null;
 
             if (routes is not null && routes.Length > 0)
             {
-                var route = routes.FirstOrDefault(r => r.Depth == depth);
+                var route = routes.FirstOrDefault(r => r.Depth == depth && r.DefName == defName);
 
                 if (route is not null)
                 {
@@ -160,7 +174,7 @@ namespace ExcelExporter.Helpers
 
             if (routes is not null && routes.Length > 0)
             {
-                var route = routes.FirstOrDefault(r => r.Depth == depth);
+                var route = routes.FirstOrDefault(r => r.Depth == depth && r.DefName == defName);
 
                 if (route is not null)
                 {
@@ -174,9 +188,9 @@ namespace ExcelExporter.Helpers
 
             if (docParam is not null)
             {
-                if (depth == -1)
+                if (depth == -1 || (searchInColumns && docParam.ParamDef.Grouping == GroupingType.Column))
                 {
-                    var tempDocParam = GetParameter(defName, docParam, index, depth, canBeSelf: false, routes);
+                    var tempDocParam = GetParameter(defName, docParam, index, depth, canBeSelf: false, searchInColumns: searchInColumns, routes);
 
                     if (tempDocParam is not null) docParam = tempDocParam;
                 }
@@ -184,7 +198,7 @@ namespace ExcelExporter.Helpers
             }
             foreach (var item in data.Children)
             {
-                docParam = GetParameter(defName, item, index, depth, routes: routes);
+                docParam = GetParameter(defName, item, index, depth, searchInColumns: searchInColumns, routes: routes);
                 if (docParam != null) return docParam;
             }
             return docParam;

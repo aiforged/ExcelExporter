@@ -10,6 +10,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Assets\**" />
+    <Compile Remove="XML\**" />
+    <Content Remove="Assets\**" />
+    <Content Remove="XML\**" />
+    <EmbeddedResource Remove="Assets\**" />
+    <EmbeddedResource Remove="XML\**" />
+    <None Remove="Assets\**" />
+    <None Remove="XML\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="Models\SingleFile.cs" />
   </ItemGroup>
 
@@ -30,16 +41,14 @@
 
   <ItemGroup>
     <PackageReference Include="AIForged.SDK" Version="1.2.1563.1024-dev" />
-    <PackageReference Include="EPPlus" Version="7.4.1" />
-    <PackageReference Include="LiquidTechnologies.XmlObjects.Runtime" Version="20.7.8" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
-    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.19.6" />
+    <PackageReference Include="EPPlus" Version="7.4.2" />
+    <PackageReference Include="LiquidTechnologies.XmlObjects.Runtime" Version="20.7.17" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Graph" Version="5.61.0" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.66.1" />
+    <PackageReference Include="Microsoft.Identity.Web.MicrosoftGraph" Version="3.3.0" />
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.0" />
     <PackageReference Include="OpenTelemetry" Version="1.8.0" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.8.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Assets\" />
-    <Folder Include="XML\" />
   </ItemGroup>
 </Project>

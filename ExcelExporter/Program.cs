@@ -24,21 +24,27 @@ namespace ExcelExporter
                     string configValue = configuration.GetSection($"{ENV_PREFIX}CONFIG").Value;
 
                     configValue = configValue.Replace("'", "\"");
-                    Config config = System.Text.Json.JsonSerializer.Deserialize<Config>(configValue, new System.Text.Json.JsonSerializerOptions()
-                    {
-                        AllowTrailingCommas = true,
-                        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull | System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault,
-                    });
+
+                    //Parse our app Config from appsettings.json
+                    Config config = configuration.GetSection("Config").Get<Config>();
 
 #if DEBUG
+                    //Override our config from user secrets when debugging
                     config.APIKey = configuration["AIForged:ApiKey"];
                     config.ProjectId = Convert.ToInt32(configuration["AIForged:ProjectId"]);
                     config.ServiceId = Convert.ToInt32(configuration["AIForged:ServiceId"]);
                     config.AIForgedEndpoint = configuration["AIForged:EndPoint"];
                     config.MasterParamDefName = configuration["AIForged:MasterParamDefName"];
                     config.InputTemplatePath = configuration["AIForged:InputTemplatePath"];
+                    config.InputDocumentStatus = Enum.Parse<AIForged.API.DocumentStatus>(configuration["AIForged:InputDocumentStatus"]);
+                    config.ProcessedDocumentStatus = Enum.Parse<AIForged.API.DocumentStatus>(configuration["AIForged:ProcessedDocumentStatus"]);
+                    config.EmailClientId = configuration["AIForged:EmailClientId"];
+                    config.EmailTenantId = configuration["AIForged:EmailTenantId"];
+                    config.EmailClientSecret = configuration["AIForged:EmailClientSecret"];
+                    config.EmailFromAddress = configuration["AIForged:EmailFromAddress"];
+                    config.EmailRecipients = System.Text.Json.JsonSerializer.Deserialize<List<string>>(configuration["AIForged:EmailRecipients"]);
 #endif
-
+                    //Add config as app lifetime service
                     services.AddSingleton(config);
                     services.AddHostedService<Worker>();
                     services.AddLogging(config => config

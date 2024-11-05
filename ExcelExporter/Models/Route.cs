@@ -10,12 +10,14 @@ namespace ExcelExporter.Models
     {
         public Route() { }
 
-        public Route(int depth, int index)
+        public Route(string defName, int depth, int index)
         {
+            DefName = defName;
             Depth = depth;
             Index = index;
         }
 
+        public string DefName { get; set; }
         public int Depth { get; set; }
         public int? Index { get; set; }
     }

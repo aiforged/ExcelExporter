@@ -21,12 +21,16 @@ namespace ExcelExporter.Generators
     public class ExcelGenerator
     {
         private ILogger _logger;
+        private Models.IConfig _config;
         private int _iteration = 0;
         private Stack<Section> _templateStack = new Stack<Section>();
 
-        public ExcelGenerator(ILogger logger) 
+        private const string SECTIONPATTERN = @"\{([a-zA-Z\:\|\&\.]+)\s(start|end)\}";
+
+        public ExcelGenerator(ILogger logger, Models.IConfig config) 
         { 
             this._logger = logger;
+            this._config = config;
         }
 
         public void GenerateExcelFile(string templatePath, string outputPath, ICollection<DocumentParameterViewModel> data)
@@ -40,16 +44,24 @@ namespace ExcelExporter.Generators
                 ExcelWorksheet worksheet = package.Workbook.Worksheets["Template"];
                 int currentRow = 1;
                 int templateRows = ParseTemplate(worksheet, currentRow);
+                var sectionData = data.FirstOrDefault(d => d.ParamDef.Name.Equals(_config.MasterParamDefName))?.Children;
 
-                foreach (var child in data)
+                //First pass we focus on iterating through te master data
+                foreach (var child in sectionData)
                 {
                     currentRow = ProcessSections(worksheet, child, currentRow);
 
                     if (data.ToList().IndexOf(child) == data.Count - 1) break;
-
-                    CloneTemplate(worksheet, currentRow);
+                    
                     _iteration++;
+                    if (_iteration < sectionData.Count())
+                    {
+                        CloneTemplate(worksheet, currentRow);
+                    }
                 }
+
+                //Last pass we fill in any data that's not included in any sections.
+                PopulateNonSectionData(worksheet, data);
 
                 SavePackage(package);
             }
@@ -57,6 +69,7 @@ namespace ExcelExporter.Generators
 
         private int ParseTemplate(ExcelWorksheet worksheet, int startRow)
         {
+            string prevSectionName = null;
             int finalEndRow = startRow;
             _templateStack = new Stack<Section>();
 
@@ -65,11 +78,11 @@ namespace ExcelExporter.Generators
                 for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
                 {
                     var cellValue = worksheet.Cells[row, col].Text;
-                    var match = Regex.Match(cellValue, @"\{([a-zA-Z\:\|\.]+)\s(start|end)\}");
+                    var match = Regex.Match(cellValue, SECTIONPATTERN);
 
                     if (match.Success)
                     {
-                        HandleSectionMatch(worksheet, row, match);
+                        prevSectionName = HandleSectionMatch(worksheet, row, match, prevSectionName);
                         finalEndRow = row;
                         col = worksheet.Dimension.End.Column; // Force next row
                     }
@@ -78,27 +91,30 @@ namespace ExcelExporter.Generators
             return finalEndRow;
         }
 
-        private void HandleSectionMatch(ExcelWorksheet worksheet, int row, Match match)
+        private string HandleSectionMatch(ExcelWorksheet worksheet, int row, Match match, string prevSectionName)
         {
             string sectionName = match.Groups[1].Value;
             string sectionType = match.Groups[2].Value;
 
             if (sectionType == "start")
             {
-                AddSectionStart(worksheet, row, sectionName);
+                AddSectionStart(worksheet, row + 1, sectionName, prevSectionName);
+                return sectionName;
             }
             else if (sectionType == "end" && _templateStack.Count > 0)
             {
-                CompleteSectionEnd(worksheet, row, sectionName);
+                CompleteSectionEnd(worksheet, row - 1, sectionName);
+                return null;
             }
+            return null;
         }
 
-        private void AddSectionStart(ExcelWorksheet worksheet, int row, string sectionName)
+        private void AddSectionStart(ExcelWorksheet worksheet, int row, string sectionName, string prevSectionName)
         {
             int startColumn = FindStartColumn(worksheet, row);
             int endColumn = FindEndColumn(worksheet, row);
 
-            _templateStack.Push(new Section(sectionName, row, startColumn, endColumn));
+            _templateStack.Push(new Section(sectionName, prevSectionName, row, startColumn, endColumn));
         }
 
         private int FindStartColumn(ExcelWorksheet worksheet, int row)
@@ -134,7 +150,7 @@ namespace ExcelExporter.Generators
             if (section != null)
             {
                 section.EndRow = row;
-                section.Cells = worksheet.Cells[section.StartRow, 1, row, worksheet.Dimension.End.Column].Value;
+                section.Cells = worksheet.Cells[section.StartRow, section.StartCol, row, section.EndCol].Value;
                 CaptureSectionStyles(worksheet, section);
                 Helpers.Tools.IdentifyMergedRanges(worksheet, section);
             }
@@ -159,7 +175,16 @@ namespace ExcelExporter.Generators
             while (sections.Count > 0)
             {
                 var section = sections.Pop();
+
+                if (section.ParentName is not null)
+                {
+                    previousSection = section;
+                    continue;
+                }
                 (int currentStartRow, int currentEndRow, rowExpansion) = ProcessSection(worksheet, data, startRow, rowExpansion, section, previousSection);
+
+                //Clear the section header
+                worksheet.Cells[section.StartRow - 2 + startRow, section.StartCol, section.StartRow - 2 + startRow, section.EndCol].Value = string.Empty;
                 previousSection = section;
 
                 if (currentEndRow > maxEndRow)
@@ -246,7 +271,7 @@ namespace ExcelExporter.Generators
             int sectionRowCount = endRow - startRow;
 
             worksheet.InsertRow(startRow, sectionRowCount);
-            worksheet.Cells[startRow, 1, endRow, section.EndCol].Value = section.Cells;
+            worksheet.Cells[startRow, section.StartCol, endRow, section.EndCol].Value = section.Cells;
 
             ApplySectionStyles(worksheet, section, startRow);
         }
@@ -293,17 +318,18 @@ namespace ExcelExporter.Generators
 
         private (int startRow, int endRow, int rowExpansion) PopulateSection(ExcelWorksheet worksheet, Section sectionObject, DocumentParameterViewModel data, int startRow, int endRow)
         {
-            int originalStartRow = startRow;
-            int originalSectionRowCount = endRow - startRow;
             int sectionRowCount = endRow - startRow;
+            int totalRowExpansion = 0;
             //worksheet.DeleteRow(endRow, 1);
             //worksheet.DeleteRow(startRow, 1);
 
-            if (sectionObject.Name.Contains(":") || sectionObject.Name.Contains("|"))
+            if (sectionObject.Name.Contains(":") || sectionObject.Name.Contains("&"))
             {
-                var paths = sectionObject.Name.Split("|", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                var paths = sectionObject.Name.Split("&", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
-                (startRow, endRow) = PopulateSectionDataRoute(worksheet, sectionObject, data, startRow, endRow, paths.FirstOrDefault(), parentSection: null, routes: null, index: null, expand: false, paths.Where(r => r != paths.FirstOrDefault()).ToArray());
+                (startRow, endRow, int rowExpansion) = PopulateSectionDataRoute(worksheet, sectionObject, data, startRow, endRow, paths.FirstOrDefault(), parentSection: null, routes: null, index: null, expand: false, paths.Where(r => r != paths.FirstOrDefault()).ToArray());
+
+                totalRowExpansion += rowExpansion;
             }
             else
             {
@@ -316,57 +342,75 @@ namespace ExcelExporter.Generators
 
                 foreach (DocumentParameterViewModel section in sectionData)
                 {
-                    (startRow, endRow) = PopulateSectionData(worksheet, sectionObject, section, startRow, endRow);
+                    (startRow, endRow, int rowExpansion) = PopulateSectionData(worksheet, sectionObject, section, startRow, endRow);
+
+                    totalRowExpansion += rowExpansion;
                 }
             }
 
-            return (startRow, endRow, endRow - originalStartRow - originalSectionRowCount);
+            return (startRow, endRow, totalRowExpansion);
         }
 
-        private (int startRow, int endRow) PopulateSectionDataRoute(ExcelWorksheet worksheet, Section sectionObject, DocumentParameterViewModel data, int startRow, int endRow, string route, DocumentParameterViewModel parentSection = null, List<Route> routes = null, int? index = null, bool expand = false, params string[] path)
+        private (int startRow, int endRow, int rowExpansion) PopulateSectionDataRoute(ExcelWorksheet worksheet, Section sectionObject, DocumentParameterViewModel data, int startRow, int endRow, string route, DocumentParameterViewModel parentSection = null, List<Route> routes = null, int? index = null, bool expand = false, params string[] path)
         {
-            var section = Helpers.Tools.GetParameterRoute(route, data, index: index, checkColumnChildren: true, routes: routes?.ToArray());
+            var section = Helpers.Tools.GetParameterRoute(route.Split("|").FirstOrDefault(), data, index: index, checkColumnChildren: true, routes: routes?.ToArray());
 
-            if (section is null) return (startRow, endRow);
+            if (section is null) return (startRow, endRow, 0);
             var rowIndexes = section.Children
                         .SelectMany(c => c.Children.Select(cc => cc.RowIndex ?? cc.Index))
                         .Distinct()
                         .OrderBy(c => c)
                         .ToList();
 
+            if (!rowIndexes.Any()) return (startRow, endRow, 0);
+            int rowStep = 0;
+            int totalRowExpansion = 0;
+
             for (int i = 0; i <= rowIndexes.Max().Value; i++)
             {
+                totalRowExpansion += rowStep;
+                int rowExpansion = 0;
                 routes ??= new List<Route>();
-                var depth = route.Split(":").Count() - 1;
-                var foundRoute = routes.FirstOrDefault(r => r.Depth == depth);
 
-                if (foundRoute is null)
+                string[] routePipe = route.Split("|", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+                foreach (string routePiece in routePipe)
                 {
-                    routes.Add(new Route()
+                    string[] routeSplit = routePiece.Split(":", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                    var depth = routeSplit.Count() - 1;
+                    var lastDef = routeSplit.LastOrDefault();
+                    var foundRoute = routes.FirstOrDefault(r => r.DefName == lastDef);
+
+                    if (foundRoute is null)
                     {
-                        Depth = depth,
-                        Index = index,
-                    });
-                }
-                else
-                {
-                    foundRoute.Index = index;
+                        routes.Add(new Route()
+                        {
+                            DefName = lastDef,
+                            Depth = depth,
+                            Index = index,
+                        });
+                    }
+                    else
+                    {
+                        foundRoute.Index = index;
+                    }
                 }
 
                 if (path is null || path.Length == 0)
                 {
-                    (startRow, endRow) = PopulateSectionData(worksheet,
+                    (startRow, endRow, rowExpansion) = PopulateSectionData(worksheet,
                         sectionObject,
                         parentSection ?? data,
                         startRow,
                         endRow,
-                        [i],
+                        route: route,
+                        rowIndexes: [i],
                         expand: expand ? expand : i < rowIndexes.Max().Value,
                         routes.ToArray());
                 }
                 else
                 {
-                    (startRow, endRow) = PopulateSectionDataRoute(worksheet,
+                    (startRow, endRow, rowExpansion) = PopulateSectionDataRoute(worksheet,
                         sectionObject,
                         data,
                         startRow,
@@ -378,52 +422,125 @@ namespace ExcelExporter.Generators
                         expand: expand ? expand : i < rowIndexes.Max().Value,
                         path.Where(p => p != path.FirstOrDefault()).ToArray());
                 }
+                totalRowExpansion += rowExpansion;
             }
 
-            return (startRow, endRow);
+            return (startRow, endRow, totalRowExpansion);
         }
 
-        private (int startRow, int endRow) PopulateSectionData(ExcelWorksheet worksheet, Section sectionObject, DocumentParameterViewModel section, int startRow, int endRow, List<int?> rowIndexes = null, bool expand = false, params Route[] routes)
+        private (int startRow, int endRow, int rowExpansion) PopulateSectionData(ExcelWorksheet worksheet, 
+            Section sectionObject, 
+            DocumentParameterViewModel section, 
+            int startRow, 
+            int endRow, 
+            string route = null, 
+            List<int?> rowIndexes = null, 
+            bool expand = false, 
+            params Route[] routes)
         {
-            int sectionRowCount = endRow - startRow;
-
             int originalStartRow = startRow;
             int originalEndRow = endRow;
+            int rowExpansion = 0;
+            int sectionRowCount = (endRow - startRow) + 1;
 
             switch (section.ParamDef.Grouping)
             {
                 case GroupingType.Table:
                     {
                         rowIndexes ??= section.Children
-                            .SelectMany(c => c.Children.Select(cc => cc.RowIndex ?? cc.Index))
+                            .SelectMany(col => col
+                                .Children
+                                .Select(cell => cell.RowIndex ?? cell.Index))
                             .Distinct()
-                            .OrderBy(c => c)
+                            .OrderBy(i => i)
                             .ToList();
 
+                        if (rowIndexes is null || rowIndexes.Count == 0) return (startRow, endRow, startRow - originalStartRow);
                         for (int i = rowIndexes.Min().Value; i <= rowIndexes.Max().Value; i++)
                         {
-                            for (int row = startRow; row < endRow; row++)
+                            int sectionRowExpansion = 0;
+
+                            for (int row = startRow; row <= endRow; row++)
                             {
                                 for (int col = sectionObject.StartCol; col <= sectionObject.EndCol; col++)
                                 {
                                     if (col == sectionObject.StartCol)
                                     {
-                                        worksheet.Cells[row, col, row, col].Style.Border.Left.Style = ExcelBorderStyle.Thick;
+                                        worksheet.Cells[row, col, row, col].Style.Border.Left.Style = ExcelBorderStyle.Medium;
                                     }
                                     if (col == sectionObject.EndCol)
                                     {
-                                        worksheet.Cells[row, col, row, col].Style.Border.Right.Style = ExcelBorderStyle.Thick;
+                                        worksheet.Cells[row, col, row, col].Style.Border.Right.Style = ExcelBorderStyle.Medium;
                                     }
 
-                                    var cellValue = worksheet.Cells[row, col].Text;
-                                    var match = Regex.Match(cellValue, @"\{(.+?)\}.*", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                                    string cellValue = worksheet.Cells[row, col].Text;
+                                    Match match = Regex.Match(cellValue, @"\{(.+?)\}.*", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
                                     if (match.Success)
                                     {
                                         string placeholder = match.Groups[1].Value;
                                         string replacement = null;
 
-                                        if (routes.Length > 0)
+                                        //Check if section placeholder and clear values:
+                                        Match sectionMatch = Regex.Match(cellValue, SECTIONPATTERN);
+
+                                        if (sectionMatch.Success)
+                                        {
+                                            if (sectionMatch.Groups[2].Value != "end")
+                                            {
+                                                Section innerSection = GetSectionObject(sectionMatch);
+
+                                                if (innerSection != sectionObject && innerSection.ParentName == sectionObject.Name)
+                                                {
+                                                    int innerStartRow = row;
+                                                    int innerEndRow = row + (innerSection.EndRow - innerSection.StartRow);
+
+                                                    string startingRoute = innerSection.Name;
+                                                    List<string> comboPath = new List<string>();
+                                                    List<string> path = new List<string>();
+
+                                                    foreach (string combo in startingRoute.Split("&", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                                                    {
+                                                        foreach (string part in combo.Split(":"))
+                                                        {
+                                                            if (!section.ParamDef.Name.Equals(part))
+                                                            {
+                                                                path.Add(part);
+                                                            }
+                                                        }
+                                                        if (path.All(string.IsNullOrEmpty)) continue;
+                                                        comboPath.Add(string.Join(":", path.Where(p => !string.IsNullOrEmpty(p))));
+                                                    }
+
+                                                    string newRoute = string.Join("&", comboPath);
+
+                                                    (int currentStartRow, int currentEndRow, rowExpansion) = PopulateSectionDataRoute(worksheet,
+                                                        sectionObject: innerSection,
+                                                        data: section,
+                                                        startRow: innerStartRow, 
+                                                        endRow: innerEndRow, 
+                                                        route: newRoute, 
+                                                        routes: routes.ToList(), 
+                                                        index: i);
+                                                    //(int currentStartRow, int currentEndRow, rowExpansion)  = PopulateSectionData(worksheet,
+                                                    //    innerSection,
+                                                    //    section,
+                                                    //    startRow,
+                                                    //    endRow,
+                                                    //    [i],
+                                                    //    expand: expand ? expand : i < rowIndexes.Max().Value,
+                                                    //    routes.ToArray());
+
+                                                    endRow += rowExpansion + 1;
+                                                    sectionRowExpansion += rowExpansion + 1;
+                                                    row = currentEndRow + 1;
+
+                                                    worksheet.Cells[innerStartRow, col].Value = string.Empty;
+                                                    worksheet.Cells[row, col].Value = string.Empty;
+                                                }
+                                            }
+                                        }
+                                        else if (routes.Length > 0)
                                         {
                                             replacement = Helpers.Tools.GetReplacementValue(placeholder, section, index: i, routes: routes);
                                         }
@@ -442,23 +559,24 @@ namespace ExcelExporter.Generators
                                     }
                                 }
                             }
-                            startRow += sectionRowCount;
-                            endRow += sectionRowCount;
+                            startRow += (sectionRowCount + sectionRowExpansion);
+                            endRow += (sectionRowCount);
                             if (i + 1 <= rowIndexes.Max().Value || expand)
                             {
                                 worksheet.InsertRow(startRow, sectionRowCount);
-                                worksheet.Cells[startRow, 1, endRow, sectionObject.EndCol].Value = sectionObject.Cells;
+
+                                //var middleElements = Helpers.Tools.GetArraySection((object[,])sectionObject.Cells, 0, sectionRowCount, 0, sectionObject.EndCol);
+
+                                worksheet.Cells[startRow, sectionObject.StartCol, endRow, sectionObject.EndCol].Value = sectionObject.Cells;
+                                var rowOffset = startRow - sectionObject.StartRow;
 
                                 foreach (var mergeAddress in sectionObject.MergedCells)
                                 {
                                     ExcelAddress newMergeAddess = null;
 
-                                    var mergeRowOffsetStart = mergeAddress.Start.Row - sectionObject.StartRow;
-                                    var mergeRowOffsetEnd = mergeAddress.End.Row - sectionObject.StartRow;
-
-                                    newMergeAddess = new ExcelAddress(startRow + mergeRowOffsetStart,
+                                    newMergeAddess = new ExcelAddress(mergeAddress.Start.Row + rowOffset,
                                            mergeAddress.Start.Column,
-                                           startRow + mergeRowOffsetEnd,
+                                           mergeAddress.End.Row + rowOffset,
                                            mergeAddress.End.Column);
 
                                     try
@@ -493,11 +611,11 @@ namespace ExcelExporter.Generators
                         {
                             if (col == sectionObject.StartCol)
                             {
-                                worksheet.Cells[row, col, row, col].Style.Border.Left.Style = ExcelBorderStyle.Thick;
+                                worksheet.Cells[row, col, row, col].Style.Border.Left.Style = ExcelBorderStyle.Medium;
                             }
                             if (col == sectionObject.EndCol)
                             {
-                                worksheet.Cells[row, col, row, col].Style.Border.Right.Style = ExcelBorderStyle.Thick;
+                                worksheet.Cells[row, col, row, col].Style.Border.Right.Style = ExcelBorderStyle.Medium;
                             }
 
                             var cellValue = worksheet.Cells[row, col].Text;
@@ -506,8 +624,36 @@ namespace ExcelExporter.Generators
                             if (match.Success)
                             {
                                 string placeholder = match.Groups[1].Value;
-                                string replacement = Helpers.Tools.GetReplacementValue(placeholder, section);
+                                string replacement = null;
 
+                                //Check if section placeholder and clear values:
+                                var sectionMatch = Regex.Match(cellValue, SECTIONPATTERN);
+
+                                if (sectionMatch.Success)
+                                {
+                                    if (sectionMatch.Groups[2].Value != "end")
+                                    {
+                                        Section innerSection = GetSectionObject(sectionMatch);
+
+                                        if (innerSection != sectionObject && innerSection.ParentName == sectionObject.Name)
+                                        {
+                                            var innerStartRow = row;
+                                            var innerEndRow = row + (innerSection.EndRow - innerSection.StartRow);
+
+                                            (int currentStartRow, int currentEndRow, rowExpansion) = ProcessSection(worksheet, section, startRow - sectionObject.StartRow + 1, rowExpansion, innerSection, sectionObject);
+
+                                            endRow += rowExpansion;
+                                            row = currentEndRow - 1;
+
+                                            worksheet.Cells[innerStartRow, col].Value = string.Empty;
+                                            worksheet.Cells[row - 1, col].Value = string.Empty;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    replacement = Helpers.Tools.GetReplacementValue(placeholder, section);
+                                }
                                 if (!string.IsNullOrEmpty(replacement))
                                 {
                                     worksheet.Cells[row, col].Value = Regex.Replace(cellValue, @"\{(.+?)\}", replacement);
@@ -526,15 +672,69 @@ namespace ExcelExporter.Generators
                 default:
                     break;
             }
+
+            if (sectionObject.ParentName != null) return (startRow, endRow, startRow - originalStartRow);
+
             var topRow = worksheet.Cells[originalStartRow, sectionObject.StartCol, originalStartRow, sectionObject.EndCol];
             topRow.Style.Border.Top.Style = ExcelBorderStyle.Medium;
 
             var bottomRow = worksheet.Cells[endRow, sectionObject.StartCol, endRow, sectionObject.EndCol];
             bottomRow.Style.Border.Bottom.Style = ExcelBorderStyle.Medium;
 
-            return (startRow, endRow);
+            return (startRow, endRow, (endRow - startRow) - (originalEndRow - originalStartRow));
         }
 
+        private void PopulateNonSectionData(ExcelWorksheet worksheet, ICollection<DocumentParameterViewModel> data)
+        {
+            if (worksheet is null) return;
+            if (data is null) return;
+
+            for (int row = 1; row <= worksheet.Dimension.End.Row; row++)
+            {
+                for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
+                {
+                    var cellValue = worksheet.Cells[row, col].Text;
+                    var match = Regex.Match(cellValue, @"\{(.+?)\}.*", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+                    if (match.Success)
+                    {
+                        string placeholder = match.Groups[1].Value;
+                        string replacement = null;
+
+                        //Check if section placeholder and clear values:
+                        var sectionMatch = Regex.Match(cellValue, SECTIONPATTERN);
+
+                        if (sectionMatch.Success)
+                        {
+                            //Do nothing
+                        }
+                        else
+                        {
+                            foreach (var docParam in data.Where(d => !d.ParamDef.Name.Equals(_config.MasterParamDefName)))
+                            {
+                                replacement = Helpers.Tools.GetReplacementValue(placeholder, docParam);
+                                if (!string.IsNullOrEmpty(replacement)) break;
+                            }
+                        }
+                        if (!string.IsNullOrEmpty(replacement))
+                        {
+                            worksheet.Cells[row, col].Value = Regex.Replace(cellValue, @"\{(.+?)\}", replacement);
+                        }
+                        else
+                        {
+                            worksheet.Cells[row, col].Value = string.Empty;
+                        }
+                    }
+                }
+            }
+        }
+
+        private Section GetSectionObject(Match match)
+        {
+            string sectionName = match.Groups[1].Value;
+
+            return _templateStack.FirstOrDefault(s => s.Name == sectionName);
+        }
 
         private void SavePackage(ExcelPackage package)
         {
